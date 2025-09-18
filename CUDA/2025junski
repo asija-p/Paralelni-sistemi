@@ -1,0 +1,138 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <cuda_runtime.h>
+
+#define BLOCK_SIZE 16
+#define WIDTH 10
+#define HEIGHT 10
+
+// Kernel prototype
+__global__ void kernelProc(int* devSlika, int* devSlikaSaZvezde);
+
+// Host function prototype
+__host__ void initProc(int* slika, int* slikaSaZvezde);
+
+int main(void)
+{
+    int slika[WIDTH][HEIGHT];
+    int slikaSaZvezde[WIDTH][HEIGHT];
+
+    srand(time(NULL));
+
+    // Initialize image with random values
+    for (int i = 0; i < WIDTH; i++)
+    {
+        for(int j = 0; j < HEIGHT; j++)
+        {
+            slika[i][j] = rand() % 256;
+        }
+    }
+
+    // Process the image
+    initProc((int*)slika, (int*)slikaSaZvezde);
+
+    // Print results
+    printf("Original image:\n");
+    for (int i = 0; i < WIDTH; i++)
+    {
+        for(int j = 0; j < HEIGHT; j++)
+        {
+            printf("%3d ", slika[i][j]);
+        }
+        printf("\n");
+    }
+
+    printf("\nStar detection result:\n");
+    for (int i = 0; i < WIDTH; i++)
+    {
+        for(int j = 0; j < HEIGHT; j++)
+        {
+            printf("%d ", slikaSaZvezde[i][j]);
+        }
+        printf("\n");
+    }
+
+    return 0;
+}
+
+__host__ void initProc(int* slika, int* slikaSaZvezde)
+{
+    int* devSlika;
+    int* devSlikaSaZvezde;
+
+    size_t sizeSlika = sizeof(int) * WIDTH * HEIGHT;
+
+    // Allocate device memory
+    cudaMalloc(&devSlika, sizeSlika);
+    cudaMalloc(&devSlikaSaZvezde, sizeSlika);
+
+    // Copy input to device
+    cudaMemcpy(devSlika, slika, sizeSlika, cudaMemcpyHostToDevice);
+
+    // Configure kernel launch parameters
+    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 grid((WIDTH + BLOCK_SIZE - 1) / BLOCK_SIZE, 
+              (HEIGHT + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    // Launch kernel
+    kernelProc<<<grid, block>>>(devSlika, devSlikaSaZvezde);
+
+    // Wait for kernel to complete
+    cudaDeviceSynchronize();
+
+    // Copy result back to host
+    cudaMemcpy(slikaSaZvezde, devSlikaSaZvezde, sizeSlika, cudaMemcpyDeviceToHost);
+
+    // Free device memory
+    cudaFree(devSlika);
+    cudaFree(devSlikaSaZvezde);
+}
+
+__global__ void kernelProc(int* devSlika, int* devSlikaSaZvezde)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    // Check if we're within image bounds
+    if (x >= WIDTH || y >= HEIGHT) return;
+    
+    int idx = y * WIDTH + x;
+    int center = devSlika[idx];
+    
+    // If pixel value <= 128, set result to 0 and return
+    if (center <= 128) {
+        devSlikaSaZvezde[idx] = 0;
+        return;
+    }
+    
+    // Calculate average of neighboring pixels (3x3 neighborhood excluding center)
+    int sum = 0;
+    int count = 0;
+    
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            // Skip the center pixel
+            if (dx == 0 && dy == 0) continue;
+            
+            int nx = x + dx;
+            int ny = y + dy;
+            
+            // Check if neighbor is within image bounds
+            if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) {
+                int neighbor_idx = ny * WIDTH + nx;
+                sum += devSlika[neighbor_idx];
+                count++;
+            }
+        }
+    }
+    
+    // Calculate average (avoid division by zero)
+    if (count > 0) {
+        int average = sum / count;
+        devSlikaSaZvezde[idx] = (average > 64) ? 1 : 0;
+    } else {
+        // If no valid neighbors, treat as not a star
+        devSlikaSaZvezde[idx] = 0;
+    }
+}
