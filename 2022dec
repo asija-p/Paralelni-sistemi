@@ -1,0 +1,111 @@
+
+#include <stdio.h>
+#include "mpi.h"
+#include "math.h"
+#include <malloc.h>
+#include <climits>
+#define MCW MPI_COMM_WORLD
+
+#define n 4
+
+int main(int argc, char* argv[])
+{
+    int p, rank;
+    int A[n][n];
+    int B[n][n];
+    int C[n][n];
+    int* locA, * locB, * locC;
+    MPI_Datatype vrsta, kolona;
+    MPI_Status status;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &p);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    if (rank == 0)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                A[i][j] = i * n + j;
+                B[i][j] = i * n + j;
+            }
+        }
+
+    }
+
+    MPI_Comm col_comm, row_comm;
+
+    int q = (int)sqrt(p);
+    int l = n / q;
+
+    MPI_Comm_split(MCW, rank % q, rank / q, &col_comm);
+    MPI_Comm_split(MCW, rank / q, rank % q, &row_comm);
+
+    int row_rank, col_rank;
+    MPI_Comm_rank(row_comm, &row_rank);
+    MPI_Comm_rank(col_comm, &col_rank);
+
+    locA = (int*)malloc(l * n * sizeof(int));
+    locB = (int*)malloc(l * n * sizeof(int));
+    locC = (int*)malloc(l * l * sizeof(int));
+
+    MPI_Type_vector(l, n, n*q, MPI_INT, &vrsta);
+    MPI_Type_create_resized(vrsta, 0, n * sizeof(int), &vrsta);
+    MPI_Type_commit(&vrsta);
+
+    MPI_Type_vector(l*n, 1, q, MPI_INT, &kolona);
+    MPI_Type_create_resized(kolona, 0, sizeof(int), &kolona);
+    MPI_Type_commit(&kolona);
+
+    if(row_rank==0)
+        MPI_Scatter(&A[0][0], 1, vrsta, &locA[0], n * l, MPI_INT, 0, col_comm);
+
+    MPI_Bcast(&locA[0], n * l, MPI_INT, 0, row_comm);
+
+    /*
+    printf("rank: %d\n ", rank);
+
+    for (int i = 0; i < l; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            printf("%d ", locA[i * n + j]);
+        }
+        printf("\n");
+    }
+    */
+
+    if (col_rank == 0)
+        MPI_Scatter(&B[0][0], 1, vrsta, &locB[0], n * l, MPI_INT, 0, row_comm);
+
+    MPI_Bcast(&locB[0], n * l, MPI_INT, 0, col_comm);
+
+    printf("rank: %d\n ", rank);
+
+    /*
+    for (int i = 0; i < l; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            printf("%d ", locB[i * n + j]);
+        }
+        printf("\n");
+    }
+    */
+
+    for (int i = 0; i < l; i++)
+    {
+        for (int j = 0; j < l; j++)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                locC[i * l + j] += locA[i * n + k] * locB[k * l + j];
+            }
+        }
+    }
+  //something something
+
+  
+    MPI_Finalize();
+}
