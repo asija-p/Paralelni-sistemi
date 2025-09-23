@@ -1,0 +1,131 @@
+#include <stdio.h>
+#include "mpi.h"
+#include "math.h"
+#include <malloc.h>
+#include <climits>
+#define MCW MPI_COMM_WORLD
+
+#define m 4
+#define k 4
+
+int main(int argc, char* argv[])
+{
+    int p, rank;
+    int A[m][k];
+    int B[k];
+    int C[m];
+    int M[k];
+    MPI_Datatype vrsta, recv;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &p);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    if (rank == 0)
+    {
+        for (int i = 0; i < m; i++)
+        {
+            for (int j = 0; j < k; j++)
+            {
+                A[i][j] = i * k + j;
+                //printf("%d ", A[j][i]);
+            }
+            //printf("\n");
+            //B[i] = i;
+        }
+
+        for (int i = 0; i < k; i++)
+        {
+            B[i] = i;
+        }
+    }
+
+    int l = m / p;
+
+    int* locA = (int*)malloc(l * k * sizeof(int));
+
+    MPI_Type_vector(l, k, l * k, MPI_INT, &vrsta);
+    MPI_Type_create_resized(vrsta, 0, k * sizeof(int), &vrsta);
+    MPI_Type_commit(&vrsta);
+
+    MPI_Scatter(&A[0][0], 1, vrsta, &locA[0], l*k, MPI_INT, 0, MCW);
+
+    /*
+    printf("rank: %d\n", rank);
+
+    for (int i = 0; i < l*k; i++)
+    {
+        printf("%d ", locA[i]);
+    }
+    */
+
+    MPI_Bcast(&B, k, MPI_INT, 0, MCW);
+
+    /*
+    for (int i = 0; i < k; i++)
+    {
+        printf("%d ", B[i]);
+    }
+    */
+
+    int* locC = (int*)malloc(l * sizeof(int));
+
+    for (int j = 0; j < l; j++) // 0 i 
+    {
+        locC[j] = 0;
+        for (int i = 0; i < k; i++)
+        {
+            locC[j]+=locA[j*k+i] * B[i];
+        }
+    }
+
+    /*
+
+    for (int i = 0; i < l; i++)
+    {
+        printf("%d ", locC[i]);
+    }
+    */
+
+    
+    MPI_Type_vector(l, 1, p, MPI_INT, &recv);
+    MPI_Type_create_resized(recv, 0, sizeof(int), &recv);
+    MPI_Type_commit(&recv);
+   
+
+    MPI_Gather(locC, l, MPI_INT, &C[0], 1, recv, 0, MCW);
+
+    /*
+    if (rank == 0)
+    {
+        for (int i = 0; i < k; i++)
+        {
+            printf("%d ", C[i]);
+        }
+    }
+    */
+    int* mn = (int*)malloc(k * sizeof(int));
+
+    for (int j = 0; j < k; j++)
+    {
+        mn[j] = 1;
+        for (int i = 0; i < l; i++)
+        {
+            mn[j] *= locA[i*k + j];
+        }
+    }
+
+
+    MPI_Reduce(&mn[0], &M[0], k, MPI_INT, MPI_PROD, 0, MCW);
+
+    if (rank == 0)
+    {
+        for (int i = 0; i < k; i++)
+        {
+            printf("%d ", M[i]);
+        }
+    }
+
+    MPI_Finalize();
+}
+
+ 
