@@ -1,0 +1,95 @@
+
+#include <stdio.h>
+#include "mpi.h"
+#include "math.h"
+#include <malloc.h>
+#include <climits>
+#define MCW MPI_COMM_WORLD
+
+#define m 4
+#define k 4
+#define x 2
+
+struct min {
+    int val;
+    int rank;
+};
+
+int main(int argc, char* argv[])
+{
+    int p, rank;
+    int np, nrank;
+    int A[m][k];
+    int B[m];
+    struct min gMin;
+    MPI_Datatype kolona;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &p);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm novi;
+
+
+    int color = (rank % x == 0) ? 0 : MPI_UNDEFINED;
+
+    MPI_Comm_split(MCW, color, rank / x, &novi);
+
+    if (novi == MPI_COMM_NULL) {  // not in the new communicator
+        MPI_Finalize();
+        return 0;
+    }
+
+    MPI_Comm_size(novi, &np);
+    MPI_Comm_rank(novi, &nrank);
+
+
+    if (nrank == 0)
+    {
+        for (int i = 0; i < m; i++)
+        {
+            for (int j = 0; j < k; j++)
+            {
+                A[i][j] = i * k + j;
+                //printf("%d ", A[j][i]);
+            }
+            //printf("\n");
+            //B[i] = i;
+        }
+    }
+
+    MPI_Type_vector(m, 1, k, MPI_INT, &kolona);
+    MPI_Type_create_resized(kolona, 0, sizeof(int), &kolona);
+    MPI_Type_commit(&kolona);
+
+    MPI_Scatter(&A[0][0], 1, kolona, &B[0], m, MPI_INT, 0, novi);
+
+    
+    printf("rank %d\n ", nrank);
+    //how to print only in 
+    for (int i = 0; i < m; i++)
+    {
+      printf("%d ", B[i]);
+    }
+
+    printf("\n");
+    
+    int sum = 0;
+
+    for (int i = 0; i < m; i++)
+    {
+        sum += B[i];
+    }
+
+    struct min lMin;
+    lMin.val = sum;
+    lMin.rank = nrank;
+
+    MPI_Reduce(&lMin, &gMin, 1, MPI_2INT, MPI_MINLOC, 0, novi);
+
+    if (nrank == 0)
+    {
+        printf("val: %d, rank: %d", gMin.val, gMin.rank);
+    }
+
+    MPI_Finalize();
+}
+
